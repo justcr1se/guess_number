@@ -42,7 +42,7 @@ async def analyze_document(text: str | None, images: list[bytes]) -> str:
     return await _call_with_retry(
         system_instruction=SYSTEM_PROMPT_ANALYZE,
         parts=parts,
-        max_output_tokens=4096,
+        max_output_tokens=8192,
     )
 
 
@@ -52,7 +52,7 @@ async def answer_followup(question: str, last_analysis: str) -> str:
     return await _call_with_retry(
         system_instruction=system,
         parts=parts,
-        max_output_tokens=2048,
+        max_output_tokens=4096,
     )
 
 
@@ -70,7 +70,7 @@ async def _call_with_retry(
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     max_output_tokens=max_output_tokens,
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    thinking_config=types.ThinkingConfig(thinking_budget=-1),
                 ),
             )
             text = (response.text or "").strip()
