@@ -16,7 +16,7 @@ Telegram-бот, который помогает понять медицинск
 
 - Python 3.11+
 - python-telegram-bot v21 (async, polling)
-- anthropic SDK, модель `claude-sonnet-4-5`
+- google-genai SDK, модель `gemini-2.5-flash` (бесплатный тариф)
 - pypdf, pdf2image, Pillow
 
 ## Структура проекта
@@ -31,7 +31,7 @@ bot/
     analyze.py
     questions.py
   services/
-    claude.py
+    gemini.py
     pdf_processor.py
     session.py
 requirements.txt
@@ -46,11 +46,13 @@ requirements.txt
 2. Отправь `/newbot`, придумай имя и username (заканчивается на `bot`)
 3. BotFather пришлёт токен вида `123456:ABC-...` — это `TELEGRAM_BOT_TOKEN`
 
-### Ключ Anthropic
+### Ключ Gemini (Google AI Studio)
 
-1. Зайди в [console.anthropic.com](https://console.anthropic.com)
-2. Создай API-ключ в разделе API Keys
-3. Сохрани значение в `ANTHROPIC_API_KEY`
+1. Открой [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) и залогинься через Google-аккаунт
+2. Нажми **Create API key** → выбери проект (или создай новый)
+3. Скопируй ключ и сохрани в `GEMINI_API_KEY`
+
+Бесплатный тариф `gemini-2.5-flash` даёт лимиты по запросам в минуту/день — для личного бота этого с запасом. Карта не нужна.
 
 ## Локальный запуск
 
@@ -84,7 +86,8 @@ python -m bot.main
 3. Railway сам определит Python и установит зависимости из `requirements.txt`.
 4. В разделе **Variables** добавь:
    - `TELEGRAM_BOT_TOKEN`
-   - `ANTHROPIC_API_KEY`
+   - `GEMINI_API_KEY`
+   - (опционально) `GEMINI_MODEL` — по умолчанию `gemini-2.5-flash`
 5. В разделе **Settings → Deploy** укажи команду запуска:
    ```
    python -m bot.main

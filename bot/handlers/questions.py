@@ -5,7 +5,7 @@ from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
 
 from bot.prompts import DISCLAIMER_SHORT
-from bot.services.claude import ClaudeServiceError, answer_followup
+from bot.services.gemini import GeminiServiceError, answer_followup
 from bot.services.session import session_store
 
 logger = logging.getLogger(__name__)
@@ -33,8 +33,8 @@ async def handle_text_question(update: Update, context: ContextTypes.DEFAULT_TYP
 
     try:
         answer = await answer_followup(message.text, session.last_analysis)
-    except ClaudeServiceError as exc:
-        logger.warning("Claude service error during follow-up: %s", exc)
+    except GeminiServiceError as exc:
+        logger.warning("Gemini service error during follow-up: %s", exc)
         await message.reply_text("Сервис временно недоступен, попробуй через минуту.")
         return
     except Exception as exc:

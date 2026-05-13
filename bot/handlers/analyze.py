@@ -14,7 +14,7 @@ from bot.config import (
     PHOTO_GROUP_WAIT_SECONDS,
 )
 from bot.prompts import DISCLAIMER_SHORT, FOLLOWUP_HINT
-from bot.services.claude import ClaudeServiceError, analyze_document
+from bot.services.gemini import GeminiServiceError, analyze_document
 from bot.services.pdf_processor import normalize_image_bytes, process_pdf
 from bot.services.session import session_store
 
@@ -156,8 +156,8 @@ async def _run_analysis(
     user_id = update.effective_user.id
     try:
         answer = await analyze_document(text=text, images=images)
-    except ClaudeServiceError as exc:
-        logger.warning("Claude service error: %s", exc)
+    except GeminiServiceError as exc:
+        logger.warning("Gemini service error: %s", exc)
         await progress_message.edit_text(
             "Сервис временно недоступен, попробуй через минуту."
         )
