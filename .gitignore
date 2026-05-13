@@ -1,0 +1,30 @@
+# Gradle
+.gradle/
+build/
+!gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Forge runs
+run/
+runs/
+src/generated/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+bin/
+out/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python texture-gen artefacts
+__pycache__/
+*.pyc
