@@ -1,13 +1,18 @@
 import asyncio
 import logging
-from typing import Iterable
+from typing import AsyncIterator, Iterable
 
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
 from bot.config import GEMINI_API_KEY, GEMINI_MODEL
-from bot.prompts import SYSTEM_PROMPT_ANALYZE, SYSTEM_PROMPT_FOLLOWUP
+from bot.prompts import (
+    ANALYZE_PROFILE_HINT,
+    PROFILE_BLOCK_TEMPLATE,
+    SYSTEM_PROMPT_ANALYZE,
+    SYSTEM_PROMPT_FOLLOWUP,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,23 +42,99 @@ def _build_parts(text: str | None, images: Iterable[bytes]) -> list[types.Part]:
     return parts
 
 
-async def analyze_document(text: str | None, images: list[bytes]) -> str:
-    parts = _build_parts(text, images)
-    return await _call_with_retry(
-        system_instruction=SYSTEM_PROMPT_ANALYZE,
-        parts=parts,
-        max_output_tokens=8192,
+def _system_for_analyze(profile: str) -> str:
+    base = SYSTEM_PROMPT_ANALYZE
+    if profile:
+        return base + ANALYZE_PROFILE_HINT.format(profile=profile)
+    return base
+
+
+def _system_for_followup(analyses: list[str], profile: str) -> str:
+    if analyses:
+        blocks = []
+        for idx, text in enumerate(analyses, start=1):
+            label = f"Анализ #{idx}" + (" (последний)" if idx == len(analyses) else "")
+            blocks.append(f"=== {label} ===\n{text}")
+        analyses_block = "\n\n".join(blocks)
+    else:
+        analyses_block = "(анализов в сессии нет)"
+    profile_block = PROFILE_BLOCK_TEMPLATE.format(profile=profile) if profile else ""
+    return SYSTEM_PROMPT_FOLLOWUP.format(
+        analyses_block=analyses_block,
+        profile_block=profile_block,
     )
 
 
-async def answer_followup(question: str, last_analysis: str) -> str:
-    system = SYSTEM_PROMPT_FOLLOWUP.format(last_analysis=last_analysis)
+async def stream_analyze_document(
+    text: str | None,
+    images: list[bytes],
+    profile: str = "",
+) -> AsyncIterator[str]:
+    parts = _build_parts(text, images)
+    async for chunk in _stream_with_retry(
+        system_instruction=_system_for_analyze(profile),
+        parts=parts,
+        max_output_tokens=8192,
+    ):
+        yield chunk
+
+
+async def answer_followup(
+    question: str,
+    analyses: list[str],
+    profile: str = "",
+) -> str:
+    system = _system_for_followup(analyses, profile)
     parts = [types.Part.from_text(text=question)]
     return await _call_with_retry(
         system_instruction=system,
         parts=parts,
         max_output_tokens=4096,
     )
+
+
+async def _stream_with_retry(
+    system_instruction: str,
+    parts: list[types.Part],
+    max_output_tokens: int,
+) -> AsyncIterator[str]:
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            stream = await _get_client().aio.models.generate_content_stream(
+                model=GEMINI_MODEL,
+                contents=[types.Content(role="user", parts=parts)],
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    max_output_tokens=max_output_tokens,
+                    thinking_config=types.ThinkingConfig(thinking_budget=-1),
+                ),
+            )
+            produced_any = False
+            async for chunk in stream:
+                text = getattr(chunk, "text", None) or ""
+                if text:
+                    produced_any = True
+                    yield text
+            if produced_any:
+                return
+            logger.warning("Gemini stream returned empty on attempt %s", attempt + 1)
+            last_error = GeminiServiceError("empty stream")
+        except genai_errors.ClientError as exc:
+            logger.warning("Gemini stream client error on attempt %s: %s", attempt + 1, exc)
+            last_error = exc
+            status = getattr(exc, "code", None)
+            if status and status != 429:
+                break
+        except genai_errors.APIError as exc:
+            logger.warning("Gemini stream API error on attempt %s: %s", attempt + 1, exc)
+            last_error = exc
+        except Exception as exc:
+            logger.warning("Gemini stream unexpected error on attempt %s: %s", attempt + 1, exc)
+            last_error = exc
+        if attempt == 0:
+            await asyncio.sleep(1.0)
+    raise GeminiServiceError(str(last_error) if last_error else "unknown error")
 
 
 async def _call_with_retry(

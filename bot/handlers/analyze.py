@@ -1,9 +1,11 @@
 import asyncio
 import logging
 import re
+import time
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from bot.config import (
@@ -14,9 +16,12 @@ from bot.config import (
     PHOTO_GROUP_WAIT_SECONDS,
 )
 from bot.prompts import DISCLAIMER_SHORT, FOLLOWUP_HINT
-from bot.services.gemini import GeminiServiceError, analyze_document
+from bot.services.gemini import GeminiServiceError, stream_analyze_document
 from bot.services.pdf_processor import normalize_image_bytes, process_pdf
 from bot.services.session import session_store
+
+STREAM_EDIT_INTERVAL_SECONDS = 1.2
+STREAM_PROGRESS_LIMIT = MAX_TELEGRAM_MESSAGE_LENGTH - 200
 
 logger = logging.getLogger(__name__)
 
@@ -154,8 +159,32 @@ async def _run_analysis(
     images: list[bytes],
 ) -> None:
     user_id = update.effective_user.id
+    session = session_store.get(user_id)
+    profile = session.profile if session else ""
+
+    accumulated = ""
+    last_edit = 0.0
+    last_rendered = ""
+
     try:
-        answer = await analyze_document(text=text, images=images)
+        async for piece in stream_analyze_document(text=text, images=images, profile=profile):
+            accumulated += piece
+            now = time.monotonic()
+            if now - last_edit < STREAM_EDIT_INTERVAL_SECONDS:
+                continue
+            preview = _strip_html_tags(accumulated)
+            if len(preview) > STREAM_PROGRESS_LIMIT:
+                preview = preview[-STREAM_PROGRESS_LIMIT:]
+            if not preview or preview == last_rendered:
+                continue
+            try:
+                await progress_message.edit_text(preview + " ▍")
+                last_rendered = preview
+                last_edit = now
+            except BadRequest:
+                pass
+            except Exception as exc:
+                logger.debug("Stream edit failed: %s", exc)
     except GeminiServiceError as exc:
         logger.warning("Gemini service error: %s", exc)
         await progress_message.edit_text(
@@ -171,8 +200,15 @@ async def _run_analysis(
     finally:
         del text, images
 
+    answer = accumulated.strip()
+    if not answer:
+        await progress_message.edit_text(
+            "Сервис временно недоступен, попробуй через минуту."
+        )
+        return
+
     questions_block = _extract_questions_block(answer)
-    session_store.set(user_id, last_analysis=answer, questions_block=questions_block)
+    session_store.add_analysis(user_id, text=answer, questions_block=questions_block)
 
     full_text = f"{answer}\n\n{DISCLAIMER_SHORT}{FOLLOWUP_HINT}"
     chunks = _split_for_telegram(full_text)
@@ -210,20 +246,24 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     user_id = query.from_user.id
 
     if query.data == "new_analysis":
-        session_store.clear(user_id)
-        await query.message.reply_text("Жду новый анализ — пришли PDF или фото 🙂")
+        session_store.clear_analyses(user_id)
+        await query.message.reply_text(
+            "Жду новый анализ — пришли PDF или фото 🙂\n"
+            "(профиль пациента сохранён, сбросить — /profile clear)"
+        )
         return
 
     if query.data == "copy_questions":
         session = session_store.get(user_id)
-        if not session or not session.questions_block:
+        questions_block = session.last_questions_block if session else ""
+        if not questions_block:
             await query.message.reply_text(
                 "Сначала пришли анализ — потом я подготовлю список вопросов врачу."
             )
             return
         text = (
             "Вопросы врачу (скопируй и перешли):\n\n"
-            f"{session.questions_block}"
+            f"{questions_block}"
         )
         await query.message.reply_text(text)
 

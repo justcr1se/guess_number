@@ -16,7 +16,13 @@ from bot.handlers.analyze import (
     handle_photo,
 )
 from bot.handlers.questions import handle_text_question
-from bot.handlers.start import about_command, help_command, reset_command, start_command
+from bot.handlers.start import (
+    about_command,
+    help_command,
+    profile_command,
+    reset_command,
+    start_command,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +39,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("reset", reset_command))
+    app.add_handler(CommandHandler("profile", profile_command))
 
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))

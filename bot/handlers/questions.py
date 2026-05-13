@@ -19,7 +19,7 @@ async def handle_text_question(update: Update, context: ContextTypes.DEFAULT_TYP
 
     user_id = update.effective_user.id
     session = session_store.get(user_id)
-    if session is None:
+    if session is None or not session.analyses:
         await message.reply_text(
             "Пока нечего обсуждать 🙂 Пришли PDF или фото анализа — потом можно будет задать уточняющий вопрос."
         )
@@ -32,8 +32,13 @@ async def handle_text_question(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception:
         pass
 
+    analyses_texts = [a.text for a in session.analyses]
     try:
-        answer = await answer_followup(message.text, session.last_analysis)
+        answer = await answer_followup(
+            question=message.text,
+            analyses=analyses_texts,
+            profile=session.profile,
+        )
     except GeminiServiceError as exc:
         logger.warning("Gemini service error during follow-up: %s", exc)
         await message.reply_text("Сервис временно недоступен, попробуй через минуту.")
