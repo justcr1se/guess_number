@@ -189,18 +189,19 @@ async def _send_chunks(progress_message, chunks: list[str]) -> None:
         try:
             if is_first:
                 await progress_message.edit_text(
-                    chunk, parse_mode=ParseMode.MARKDOWN, reply_markup=markup
+                    chunk, parse_mode=ParseMode.HTML, reply_markup=markup
                 )
             else:
                 await progress_message.reply_text(
-                    chunk, parse_mode=ParseMode.MARKDOWN, reply_markup=markup
+                    chunk, parse_mode=ParseMode.HTML, reply_markup=markup
                 )
         except Exception as exc:
             logger.warning("Failed to send formatted chunk, falling back to plain: %s", exc)
+            plain = _strip_html_tags(chunk)
             if is_first:
-                await progress_message.edit_text(chunk, reply_markup=markup)
+                await progress_message.edit_text(plain, reply_markup=markup)
             else:
-                await progress_message.reply_text(chunk, reply_markup=markup)
+                await progress_message.reply_text(plain, reply_markup=markup)
 
 
 async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -237,10 +238,20 @@ async def _send_typing(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 def _extract_questions_block(answer: str) -> str:
-    match = re.search(r"\*?❓[^\n]*\*?\n(.+?)(?:\n\s*\n|\Z)", answer, re.DOTALL)
+    match = re.search(r"❓[^\n]*\n(.+?)(?:\n\s*\n|\Z)", answer, re.DOTALL)
     if not match:
         return ""
-    return match.group(1).strip()
+    block = match.group(1).strip()
+    return _strip_html_tags(block)
+
+
+def _strip_html_tags(text: str) -> str:
+    text = re.sub(r"<[^>]+>", "", text)
+    return (
+        text.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+    )
 
 
 def _split_for_telegram(text: str, limit: int = MAX_TELEGRAM_MESSAGE_LENGTH) -> list[str]:

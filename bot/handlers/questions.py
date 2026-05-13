@@ -1,4 +1,5 @@
 import logging
+import re
 
 from telegram import Update
 from telegram.constants import ChatAction, ParseMode
@@ -44,7 +45,9 @@ async def handle_text_question(update: Update, context: ContextTypes.DEFAULT_TYP
 
     full_text = f"{answer}\n\n{DISCLAIMER_SHORT}"
     try:
-        await message.reply_text(full_text, parse_mode=ParseMode.MARKDOWN)
+        await message.reply_text(full_text, parse_mode=ParseMode.HTML)
     except Exception as exc:
-        logger.warning("Failed to send markdown follow-up, falling back to plain: %s", exc)
-        await message.reply_text(full_text)
+        logger.warning("Failed to send formatted follow-up, falling back to plain: %s", exc)
+        plain = re.sub(r"<[^>]+>", "", full_text)
+        plain = plain.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+        await message.reply_text(plain)
