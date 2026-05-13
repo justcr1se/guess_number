@@ -174,21 +174,33 @@ async def _run_analysis(
     questions_block = _extract_questions_block(answer)
     session_store.set(user_id, last_analysis=answer, questions_block=questions_block)
 
-    body = _trim_to_telegram_limit(answer)
-    full_text = f"{body}\n\n{DISCLAIMER_SHORT}{FOLLOWUP_HINT}"
+    full_text = f"{answer}\n\n{DISCLAIMER_SHORT}{FOLLOWUP_HINT}"
+    chunks = _split_for_telegram(full_text)
 
-    try:
-        await progress_message.edit_text(
-            full_text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=_build_keyboard(),
-        )
-    except Exception as exc:
-        logger.warning("Failed to send formatted message, falling back to plain: %s", exc)
-        await progress_message.edit_text(
-            full_text,
-            reply_markup=_build_keyboard(),
-        )
+    await _send_chunks(progress_message, chunks)
+
+
+async def _send_chunks(progress_message, chunks: list[str]) -> None:
+    keyboard = _build_keyboard()
+    last_index = len(chunks) - 1
+    for idx, chunk in enumerate(chunks):
+        markup = keyboard if idx == last_index else None
+        is_first = idx == 0
+        try:
+            if is_first:
+                await progress_message.edit_text(
+                    chunk, parse_mode=ParseMode.MARKDOWN, reply_markup=markup
+                )
+            else:
+                await progress_message.reply_text(
+                    chunk, parse_mode=ParseMode.MARKDOWN, reply_markup=markup
+                )
+        except Exception as exc:
+            logger.warning("Failed to send formatted chunk, falling back to plain: %s", exc)
+            if is_first:
+                await progress_message.edit_text(chunk, reply_markup=markup)
+            else:
+                await progress_message.reply_text(chunk, reply_markup=markup)
 
 
 async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -231,9 +243,23 @@ def _extract_questions_block(answer: str) -> str:
     return match.group(1).strip()
 
 
-def _trim_to_telegram_limit(text: str) -> str:
-    suffix_overhead = 100
-    limit = MAX_TELEGRAM_MESSAGE_LENGTH - suffix_overhead
+def _split_for_telegram(text: str, limit: int = MAX_TELEGRAM_MESSAGE_LENGTH) -> list[str]:
     if len(text) <= limit:
-        return text
-    return text[: limit - 1].rstrip() + "…"
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+    while len(remaining) > limit:
+        slice_ = remaining[:limit]
+        split_at = slice_.rfind("\n\n")
+        if split_at < limit // 2:
+            split_at = slice_.rfind("\n")
+        if split_at < limit // 2:
+            split_at = slice_.rfind(" ")
+        if split_at <= 0:
+            split_at = limit
+        chunks.append(remaining[:split_at].rstrip())
+        remaining = remaining[split_at:].lstrip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
