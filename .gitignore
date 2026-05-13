@@ -3,6 +3,7 @@
 build/
 !gradle-wrapper.jar
 !gradle/wrapper/gradle-wrapper.jar
+!dist/*.jar
 
 # Forge runs
 run/
